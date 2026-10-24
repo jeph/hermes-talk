@@ -21,6 +21,7 @@ import shlex
 
 try:
     from . import (
+        talk_autojoin,
         talk_cli,
         talk_codex_provider,
         talk_config,
@@ -35,6 +36,7 @@ try:
         talk_transcript,
     )
 except ImportError:  # pragma: no cover - flat-module fallback (pip -e install)
+    import talk_autojoin
     import talk_cli
     import talk_codex_provider
     import talk_config
@@ -238,12 +240,23 @@ def _talk_command(raw_args: str = "", invocation=None) -> str:
     requested = raw.split(maxsplit=1)[0].lower() if raw else "join"
     explicit_target = requested == "join" and len(raw.split(maxsplit=1)) > 1
     native_join = requested == "join" and (
-        explicit_target or os.environ.get("TALK_TASK_TARGET")
-        or talk_config.voice_mode() == "live"
+        explicit_target or os.environ.get("TALK_TASK_TARGET") or talk_config.voice_mode() == "live"
     )
-    if canonical or native_join or requested in {
-        "select", "return", "reconnect", "state", "result", "preference", "interrupt", "say",
-    }:
+    if (
+        canonical
+        or native_join
+        or requested
+        in {
+            "select",
+            "return",
+            "reconnect",
+            "state",
+            "result",
+            "preference",
+            "interrupt",
+            "say",
+        }
+    ):
         return _canonical_discord_command(raw, invocation)
 
     if sub in {"leave", "stop", "hang up"}:
@@ -279,7 +292,6 @@ def _talk_command(raw_args: str = "", invocation=None) -> str:
     return talk_discord.JOIN_USAGE
 
 
-
 async def _talk_command_on_gateway_loop(raw_args: str = "", invocation=None) -> str:
     """Resume an offloaded Discord command on the gateway's owning loop."""
     result = _talk_command(raw_args, invocation)
@@ -294,12 +306,19 @@ def _canonical_discord_command(raw, invocation):
         return "Canonical task voice requires an authorized Discord command on a compatible host."
     try:
         context = capture()
-        identifiers = {key: int(context[key]) for key in (
-            "guild_id", "channel_id", "operator_user_id",
-        )}
-        if (any(value <= 0 for value in identifiers.values())
-                or not isinstance(context["proof"], str)
-                or not isinstance(context["anchor_session_id"], str)):
+        identifiers = {
+            key: int(context[key])
+            for key in (
+                "guild_id",
+                "channel_id",
+                "operator_user_id",
+            )
+        }
+        if (
+            any(value <= 0 for value in identifiers.values())
+            or not isinstance(context["proof"], str)
+            or not isinstance(context["anchor_session_id"], str)
+        ):
             raise ValueError("Invalid host context")
         parts = shlex.split(raw) if raw else ["join"]
     except Exception:  # noqa: BLE001 - host refusal details and proofs stay private
@@ -313,12 +332,18 @@ def _canonical_discord_command(raw, invocation):
         peer = arguments[1] if len(arguments) == 3 else "local"
         profile = arguments[2] if len(arguments) == 3 else context.get("profile", "default")
         task = {
-            "target_id": (arguments[0] if arguments else
-                          os.environ.get("TALK_TASK_TARGET") or context["anchor_session_id"]),
-            "peer_id": peer, "profile": profile,
+            "target_id": (
+                arguments[0]
+                if arguments
+                else os.environ.get("TALK_TASK_TARGET") or context["anchor_session_id"]
+            ),
+            "peer_id": peer,
+            "profile": profile,
             "tab_id": "discord-" + "-".join(str(value) for value in identifiers.values()),
             "surface_context": {
-                "surface": "discord", **identifiers, "surface_token": context["proof"],
+                "surface": "discord",
+                **identifiers,
+                "surface_token": context["proof"],
                 "surface_profile": context.get("profile", "default"),
                 "anchor_session_id": context["anchor_session_id"],
             },
@@ -328,15 +353,22 @@ def _canonical_discord_command(raw, invocation):
         receipt = talk_discord.start_session(guild_id=identifiers["guild_id"], native_task=task)
         with talk_discord._SESSION_LOCK:
             running = talk_discord._SESSION.get("task")
-            if (running is not None and running is not previous and not running.done()
-                    and talk_discord._SESSION.get("mode") == "native-task"):
+            if (
+                running is not None
+                and running is not previous
+                and not running.done()
+                and talk_discord._SESSION.get("mode") == "native-task"
+            ):
                 talk_discord._SESSION["native_start_control"] = (
-                    running, talk_discord._SESSION.get("generation"), dict(identifiers),
+                    running,
+                    talk_discord._SESSION.get("generation"),
+                    dict(identifiers),
                 )
         return receipt
     with talk_discord._SESSION_LOCK:
         expected_session = (
-            talk_discord._SESSION.get("task"), talk_discord._SESSION.get("generation"),
+            talk_discord._SESSION.get("task"),
+            talk_discord._SESSION.get("generation"),
         )
     return _canonical_discord_control(operation, arguments, identifiers, expected_session)
 
@@ -346,21 +378,28 @@ async def _canonical_discord_control(operation, arguments, identifiers, expected
         if operation in {"leave", "stop"} and not arguments:
             with talk_discord._SESSION_LOCK:
                 running, generation = expected_session
-                if (running is None or running.done()
-                        or talk_discord._SESSION.get("task") is not running
-                        or talk_discord._SESSION.get("generation") != generation):
+                if (
+                    running is None
+                    or running.done()
+                    or talk_discord._SESSION.get("task") is not running
+                    or talk_discord._SESSION.get("generation") != generation
+                ):
                     raise ValueError("Voice session changed before leave")
                 starting = talk_discord._SESSION.get("controller") is None
                 if starting and talk_discord._SESSION.get("native_start_control") != (
-                    running, generation, identifiers,
+                    running,
+                    generation,
+                    identifiers,
                 ):
                     raise ValueError("Startup caller does not match its immutable operator")
             if not starting:
                 # Connected sessions retain their full operator and live audience checks.
                 await talk_discord.native_command("/state", **identifiers)
             with talk_discord._SESSION_LOCK:
-                if (talk_discord._SESSION.get("task") is not running
-                        or talk_discord._SESSION.get("generation") != generation):
+                if (
+                    talk_discord._SESSION.get("task") is not running
+                    or talk_discord._SESSION.get("generation") != generation
+                ):
                     raise ValueError("Voice session changed during leave")
             # No await between the ownership fence and synchronous cancellation.
             return talk_discord.stop_session()
@@ -374,8 +413,11 @@ async def _canonical_discord_control(operation, arguments, identifiers, expected
             command = "/" + shlex.join([operation, *arguments])
         result = await talk_discord.native_command(command, **identifiers)
         if operation in {"select", "return", "reconnect"}:
-            return ("Task voice connected." if result.get("selected") is True
-                    else "Task voice connection was not confirmed; check the selected task.")
+            return (
+                "Task voice connected."
+                if result.get("selected") is True
+                else "Task voice connection was not confirmed; check the selected task."
+            )
         if operation in {"state", "result", "targets"}:
             return (
                 "Task access checked. Inspect full task content in the authenticated Talk "
@@ -517,6 +559,9 @@ def register(ctx) -> None:
     else:
         _unsupported("tts provider", "tts_provider")
         _unsupported("transcription provider", "transcription_provider")
+
+    # Fork addition (FORK.md): Discord voice auto-join.
+    talk_autojoin.register(ctx)
 
 
 __all__ = ["REGISTRATION_FAILURES", "REGISTRATION_RECEIPTS", "register"]

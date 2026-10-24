@@ -66,6 +66,7 @@ py-modules = [
   "talk_doctor",
   "talk_setup",
   "talk_apiserver",
+  "talk_autojoin",
   "talk_approvals",
   "talk_capabilities",
   "talk_cascade_voice",
@@ -151,6 +152,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "BLE"]
 [tool.ruff.lint.isort]
 known-first-party = [
   "talk_apiserver",
+  "talk_autojoin",
   "talk_attachment",
   "talk_approvals",
   "talk_audio",
