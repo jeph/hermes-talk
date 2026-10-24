@@ -18,8 +18,10 @@ new difference, add an entry here in the same commit.
 
 Hermes joins one configured Discord voice channel and starts the same session
 `/talk join` starts whenever a Talk operator is in that channel. It stops the
-session and leaves once no operator remains. Non-operators entering or leaving
-never start or stop anything.
+session and leaves once no operator remains. Every human join or leave on that
+channel, and every gateway reconnect, re-checks this rule; so while an operator
+is present, any such event restarts a session that has ended (for example after
+`/talk leave`). A channel with only non-operators never gets a session.
 
 | Setting | Meaning |
 |---|---|
@@ -63,6 +65,23 @@ Files: `talk_apiserver.py` (`_listing` also accepts a list under `data`) and
 `tests/test_apiserver_lane.py` (`test_listings_accept_the_api_servers_data_envelope`).
 
 Drop when: upstream `_listing` accepts the `data` envelope.
+
+### 3. The capability catalog waits for the first api_server probe
+
+At session start, upstream warms the capability catalog before it warms the
+api_server lane check. The catalog's first read therefore saw the lane's cold
+"still checking" answer and cached "no capabilities" for 30 seconds
+(`TALK_CAPABILITY_CATALOG_TTL_S`). The voice model was told nothing was
+available and refused to hand off work.
+
+Files: `talk_capabilities.py` (`_from_api_server` calls the blocking
+`talk_apiserver.warm()` when the cached lane answer is the cold
+`CHECKING_DETAIL` one; that function only runs on the catalog's refresh thread
+or inside the already-blocking `warm()`) and `tests/test_capabilities.py`
+(`test_a_cold_lane_verdict_is_probed_before_the_catalog_gives_up`).
+
+Drop when: upstream resolves the lane before the catalog's first read, or no
+longer caches a cold lane verdict as the catalog.
 
 ## Related local patch outside this repo
 
