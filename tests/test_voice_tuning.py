@@ -37,10 +37,10 @@ def test_out_of_range_or_junk_speed_refuses_instead_of_clamping(monkeypatch, raw
         _payload()
 
 
-def test_style_is_appended_to_the_instructions(monkeypatch):
+def test_style_leads_the_instructions(monkeypatch):
     monkeypatch.setenv("TALK_VOICE_STYLE", "Speak with a British accent.")
 
-    assert _payload()["instructions"] == "hi\n\n# Speaking style\nSpeak with a British accent."
+    assert _payload()["instructions"] == "# Speaking style\nSpeak with a British accent.\n\nhi"
 
 
 def test_text_output_sessions_ignore_both_knobs(monkeypatch):

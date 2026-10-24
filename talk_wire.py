@@ -135,7 +135,9 @@ def build_session_payload(
             audio["output"]["speed"] = speed
         style = talk_config.voice_style()
         if style:
-            instructions = f"{instructions}\n\n# Speaking style\n{style}"
+            # First, not last: OpenAI's Realtime prompting guide puts accent and
+            # persona in the opening section, and Talk's own preamble is long.
+            instructions = f"# Speaking style\n{style}\n\n{instructions}"
     payload: dict = {
         "type": "realtime",
         "model": model,

@@ -115,7 +115,7 @@ Drop when: upstream stops blocking the loop for that wait.
 | Setting | Meaning |
 |---|---|
 | `TALK_SPEED` | OpenAI Realtime `audio.output.speed`, 0.25 to 1.5 (1.0 is normal). Unset sends no field. Junk or out-of-range values refuse the session instead of clamping. Changes playback rate, not wording. |
-| `TALK_VOICE_STYLE` | Free text appended to the session instructions under `# Speaking style`, for example an accent. Unset changes nothing. |
+| `TALK_VOICE_STYLE` | Free text placed at the very top of the session instructions under `# Speaking style`, for example an accent (OpenAI's Realtime prompting guide puts accent and persona in the opening section). Unset changes nothing. |
 
 Both apply only to native audio sessions; cascade (text-output) sessions ignore
 them. Upstream's `TALK_CASCADE_SPEED` remains the cascade lane's pace setting.
