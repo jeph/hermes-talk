@@ -277,6 +277,24 @@ def test_neither_source_reachable_says_so_without_claiming_an_empty_install(
     assert "Traceback" not in snapshot.detail
 
 
+def test_a_cold_lane_verdict_is_probed_before_the_catalog_gives_up(monkeypatch, rest_lane_on):
+    """Session start warms the catalog before the lane, so the first catalog read
+    sees the lane's cold "still checking" verdict. Caching that as the catalog
+    told the voice model nothing was available for the first TTL window."""
+
+    cold = talk_apiserver.ApiServerStatus(
+        False, talk_apiserver.REASON_ABSENT, talk_apiserver.CHECKING_DETAIL
+    )
+    _rest_up(monkeypatch)
+    monkeypatch.setattr(talk_apiserver, "status", lambda: cold)
+    monkeypatch.setattr(talk_apiserver, "warm", lambda: UP)
+
+    snapshot = talk_capabilities.warm()
+
+    assert snapshot.source == talk_capabilities.SOURCE_API_SERVER
+    assert snapshot.toolsets
+
+
 def test_the_rest_tier_is_inert_under_pytest_by_default(monkeypatch):
     """The guard that keeps the dashboard's session-start warm off the network.
     If this ever returns True by accident, unrelated suites dial port 8642."""

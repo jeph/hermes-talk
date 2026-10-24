@@ -275,6 +275,12 @@ def _from_api_server() -> CatalogSnapshot:
     if not _rest_lane_enabled():
         return _empty(INERT_DETAIL)
     verdict = talk_apiserver.status()
+    if not verdict.available and verdict.detail == talk_apiserver.CHECKING_DETAIL:
+        # Only refresh threads and the blocking warm() reach this tier, so waiting
+        # for the first probe is free here. Without it, a session start (which
+        # warms this catalog before the lane) caches "still checking" as the
+        # catalog and the voice model is told no capabilities exist.
+        verdict = talk_apiserver.warm()
     if not verdict.available:
         return _empty(UNREACHABLE_DETAIL.format(reason=verdict.detail))
     try:
