@@ -189,11 +189,11 @@ def _announcement_commands(
       relaying a result can never directly emit a tool call.
     - The item DELETES ITSELF: a client-minted item id and a trailing
       ``conversation.item.delete`` ride the same batch, so the raw report
-      exists for exactly one tools-disabled response and never persists
-      into later tool-enabled turns with system-level priority. (The
-      response snapshots conversation state at creation; the delete only
-      shapes what FUTURE turns see — a server that raced it would merely
-      thin the announcement, never widen the injection window.)
+      never persists into later tool-enabled turns with system-level
+      priority. The session's writer holds that delete back until the
+      announcement's own response ends (or the operator barges in, or any
+      other response is requested): sent immediately, it reached the server
+      before the model read the item, so nothing was spoken (fork, FORK.md).
     """
 
     item_id = f"talkann{uuid.uuid4().hex[:20]}"
@@ -1798,6 +1798,27 @@ async def run_talk_session(
     try:
         send_lock = asyncio.Lock()
         continuation_pending = False
+        # Fork addition (FORK.md): an announcement's self-delete is held back
+        # until its own response ends. Sent in the same batch, the delete beat
+        # the model's read of the item on gpt-realtime-2.1 (probed live), so
+        # finished work was never spoken. ``unbound`` items are on the wire with
+        # no response yet; ``bound`` maps a started response id to its items.
+        unbound_announcement_items: list[str] = []
+        bound_announcement_items: dict[str | None, list[str]] = {}
+
+        def retire_announcement_items(
+            response_id: str | None = None, *, everything: bool = False
+        ) -> list[talk_realtime.RemoveContext]:
+            if everything:
+                item_ids = [*unbound_announcement_items]
+                for items in bound_announcement_items.values():
+                    item_ids.extend(items)
+                unbound_announcement_items.clear()
+                bound_announcement_items.clear()
+            else:
+                item_ids = bound_announcement_items.pop(response_id, [])
+            return [talk_realtime.RemoveContext(item_id=item_id) for item_id in item_ids]
+
         packet_lane = SpeakerPacketLane()
         if cascade is not None:
             cascade.start()
@@ -1835,10 +1856,26 @@ async def run_talk_session(
                     relay.response_active or continuation_pending or speaker_busy()
                 ):
                     return False
-                if any(
+                starts_response = any(
                     isinstance(command, talk_realtime.StartResponse)
                     for command in commands
-                ):
+                )
+                if is_announcement:
+                    unbound_announcement_items.extend(
+                        command.item_id
+                        for command in commands
+                        if isinstance(command, talk_realtime.RemoveContext)
+                    )
+                    commands = tuple(
+                        command
+                        for command in commands
+                        if not isinstance(command, talk_realtime.RemoveContext)
+                    )
+                elif starts_response:
+                    # Any other response may run tools: no announcement item
+                    # may still be in the conversation when it starts.
+                    commands = (*retire_announcement_items(everything=True), *commands)
+                if starts_response:
                     continuation_pending = True
                 await session.send(commands)
             start_watchers(commands)
@@ -2013,6 +2050,11 @@ async def run_talk_session(
                     raise talk_realtime.RealtimeSessionError(event.detail)
                 if isinstance(event, talk_realtime.ResponseStarted):
                     continuation_pending = False
+                    if unbound_announcement_items:
+                        bound_announcement_items.setdefault(event.response_id, []).extend(
+                            unbound_announcement_items
+                        )
+                        unbound_announcement_items.clear()
                 if isinstance(event, talk_realtime.FunctionCall):
                     tool_event = {
                         "call_id": event.call_id,
@@ -2032,6 +2074,13 @@ async def run_talk_session(
                 if cascade is not None:
                     cascade.handle_event(event)
                 outgoing = relay.handle_realtime_event(event)
+                # Barge-in retires every announcement item before the server
+                # can open the operator's tool-enabled turn; otherwise an item
+                # leaves once the response that read it has ended.
+                if isinstance(event, talk_realtime.SpeechStarted):
+                    outgoing = [*retire_announcement_items(everything=True), *outgoing]
+                elif isinstance(event, talk_realtime.ResponseFinished):
+                    outgoing = [*retire_announcement_items(event.response_id), *outgoing]
                 if (
                     authorization_ledger is not None
                     and isinstance(event, talk_realtime.InputAudioCommitted)

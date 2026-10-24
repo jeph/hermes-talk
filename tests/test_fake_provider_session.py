@@ -1015,3 +1015,118 @@ def test_a_reconnect_does_not_adopt_a_different_operator_binding(routed):
             "sess-bound", operator="codex-oauth", profile=talk_config.agent_profile()
         )
     ] == [run_id]
+
+
+# --- the announcement's self-delete waits for its response (fork, FORK.md) ----
+
+
+class TimelineProvider(FakeProviderSession):
+    """Answers each ``StartResponse`` with scripted events and records the wire order."""
+
+    def __init__(self, script):
+        super().__init__([rt.SessionReady(session_id="session-1")])
+        self.timeline: list[tuple[str, object]] = []
+        self._script = script
+        self._responses = 0
+
+    def _deleted(self) -> bool:
+        return any(
+            isinstance(command, rt.RemoveContext) for batch in self.sent for command in batch
+        )
+
+    async def send(self, commands):
+        await super().send(commands)
+        if commands:
+            self.timeline.append(("sent", tuple(commands)))
+        for command in commands:
+            if isinstance(command, rt.StartResponse):
+                self._responses += 1
+                self.events.extend(self._script(f"resp-{self._responses}"))
+
+    async def __anext__(self):
+        if not self.events and not self._terminal_emitted:
+            for _ in range(300):  # bounded: the asserts speak if nothing arrives
+                await asyncio.sleep(0.01)
+                if self.events or self._deleted():
+                    break
+        event = await super().__anext__()
+        self.timeline.append(("event", event))
+        return event
+
+
+def _announce_once(monkeypatch, script) -> TimelineProvider:
+    def attach(loop, callback, _owner_session_id):
+        loop.call_soon(callback, {"subagent_id": "sa-1", "status": "ok", "summary": "done"})
+
+    monkeypatch.setattr(talk_cli.talk_lifecycle, "attach_session", attach)
+    fake = TimelineProvider(script)
+    _run(fake)
+    return fake
+
+
+def _position(timeline, predicate) -> int:
+    return next(index for index, entry in enumerate(timeline) if predicate(entry))
+
+
+def _announcement_item(timeline) -> str:
+    return next(
+        command.item_id
+        for kind, value in timeline
+        if kind == "sent"
+        for command in value
+        if isinstance(command, rt.AddContext)
+    )
+
+
+def _deletes(item_id):
+    return lambda entry: entry[0] == "sent" and any(
+        isinstance(command, rt.RemoveContext) and command.item_id == item_id
+        for command in entry[1]
+    )
+
+
+def test_an_announcement_item_outlives_the_response_that_reads_it(monkeypatch):
+    """Deleted in the same batch, the item was gone before the model read it.
+
+    Probed live on gpt-realtime-2.1: the model answered as if no result had
+    arrived. The delete must wait for the announcement's response to end.
+    """
+
+    fake = _announce_once(
+        monkeypatch,
+        lambda rid: [rt.ResponseStarted(response_id=rid), rt.ResponseFinished(response_id=rid)],
+    )
+    item_id = _announcement_item(fake.timeline)
+
+    created = _position(
+        fake.timeline,
+        lambda e: e[0] == "sent" and any(isinstance(c, rt.AddContext) for c in e[1]),
+    )
+    finished = _position(
+        fake.timeline, lambda e: e[0] == "event" and isinstance(e[1], rt.ResponseFinished)
+    )
+    deleted = _position(fake.timeline, _deletes(item_id))
+    assert created < finished < deleted
+
+
+def test_a_barge_in_retires_the_announcement_item_before_the_next_turn(monkeypatch):
+    """The operator's own turn can run tools; the raw report must be gone first."""
+
+    fake = _announce_once(
+        monkeypatch,
+        lambda rid: [
+            rt.ResponseStarted(response_id=rid),
+            rt.SpeechStarted(input_id="input-1"),
+            rt.ResponseFinished(response_id=rid, status="cancelled"),
+        ],
+    )
+    item_id = _announcement_item(fake.timeline)
+
+    barge_in = _position(
+        fake.timeline, lambda e: e[0] == "event" and isinstance(e[1], rt.SpeechStarted)
+    )
+    finished = _position(
+        fake.timeline, lambda e: e[0] == "event" and isinstance(e[1], rt.ResponseFinished)
+    )
+    deleted = _position(fake.timeline, _deletes(item_id))
+    assert barge_in < deleted < finished
