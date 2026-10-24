@@ -127,6 +127,32 @@ Files: `talk_config.py` (`realtime_speed`, `voice_style`,
 
 Drop when: upstream adds equivalent settings; move the values to upstream's names.
 
+### 7. Announcements are deleted after their response, not with it
+
+Background results, progress milestones, approval prompts and other spoken
+announcements are added to the conversation as a temporary system item, then a
+tools-disabled response is requested and the item is deleted. Upstream sends the
+delete in the same batch as the response request. On `gpt-realtime-2.1` the
+delete reaches the server before the model reads the item, so the model answers
+as if nothing arrived (probed live: 2 of 2 runs with the same-batch delete
+ignored the result, 2 of 2 without it read the result out). Delegated work was
+only heard when the operator asked the model to check.
+
+The session writer now holds the delete back and sends it when the first of
+these happens: the announcement's own response finishes, the operator starts
+speaking (before the server can open their tool-enabled turn), or any other
+response is requested. The raw report still never reaches a tool-enabled turn.
+
+Files: `talk_cli.py` (`run_talk_session`: `retire_announcement_items`, the
+announcement branch in `send_outgoing`, and the `ResponseStarted`,
+`ResponseFinished` and `SpeechStarted` handling in `receive_events`; the
+`_announcement_commands` docstring), and `tests/test_fake_provider_session.py`
+(`test_an_announcement_item_outlives_the_response_that_reads_it`,
+`test_a_barge_in_retires_the_announcement_item_before_the_next_turn`).
+
+Drop when: upstream stops sending the delete in the same batch as the response
+request.
+
 ## Related local patch outside this repo
 
 Hermes Agent itself (`~/.hermes/hermes-agent`, not this repo) carries one local
