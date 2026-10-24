@@ -20,9 +20,11 @@ from dataclasses import dataclass
 import httpx
 
 try:
+    from . import talk_config
     from . import talk_realtime as rt
     from .talk_config import DEFAULT_TALK_MODEL, DEFAULT_TALK_VOICE
 except ImportError:  # pragma: no cover - flat-module fallback (Hermes file-path load)
+    import talk_config
     import talk_realtime as rt
     from talk_config import DEFAULT_TALK_MODEL, DEFAULT_TALK_VOICE
 
@@ -127,6 +129,13 @@ def build_session_payload(
     }
     if not text_output:
         audio["output"] = {"voice": voice}
+        # Fork addition (FORK.md): native playback pace and speaking style.
+        speed = talk_config.realtime_speed()
+        if speed is not None:
+            audio["output"]["speed"] = speed
+        style = talk_config.voice_style()
+        if style:
+            instructions = f"{instructions}\n\n# Speaking style\n{style}"
     payload: dict = {
         "type": "realtime",
         "model": model,

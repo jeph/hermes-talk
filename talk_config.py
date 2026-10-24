@@ -779,6 +779,43 @@ def elevenlabs_voice_settings() -> dict:
     return settings
 
 
+#: OpenAI Realtime ``audio.output.speed`` bounds (1.0 is normal pace). Fork
+#: addition, see FORK.md.
+REALTIME_SPEED_MIN = 0.25
+REALTIME_SPEED_MAX = 1.5
+
+
+def realtime_speed() -> float | None:
+    """Native OpenAI Realtime playback pace (``TALK_SPEED``), or ``None`` when unset.
+
+    ``None`` sends no ``speed`` field. Junk and out-of-range values refuse
+    rather than clamp, for the reason :func:`elevenlabs_speed` gives.
+    """
+
+    raw = (os.environ.get("TALK_SPEED") or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = float(raw)
+    except ValueError:
+        raise TalkConfigError(
+            f"TALK_SPEED '{raw}' is not a number — set it between "
+            f"{REALTIME_SPEED_MIN} and {REALTIME_SPEED_MAX} (1.0 is normal pace), or unset it"
+        ) from None
+    if not REALTIME_SPEED_MIN <= parsed <= REALTIME_SPEED_MAX:
+        raise TalkConfigError(
+            f"TALK_SPEED {parsed:g} is outside the range OpenAI Realtime accepts "
+            f"({REALTIME_SPEED_MIN}-{REALTIME_SPEED_MAX}, 1.0 is normal pace)"
+        )
+    return parsed
+
+
+def voice_style() -> str | None:
+    """Speaking-style guidance for the native voice (``TALK_VOICE_STYLE``), e.g. an accent."""
+
+    return (os.environ.get("TALK_VOICE_STYLE") or "").strip() or None
+
+
 def cascade_voice_config(provider: str) -> tuple[str, str, str]:
     """The resolved cascade TTS triple — (key, voice id, model). Fail-closed.
 
@@ -1038,6 +1075,8 @@ __all__ = [
     "KNOWN_INCOMPATIBLE_REALTIME_MODELS",
     "MODEL_COMPATIBILITY_POLICY_VERSION",
     "OPENAI_REALTIME_VOICES",
+    "REALTIME_SPEED_MAX",
+    "REALTIME_SPEED_MIN",
     "TALK_CASCADE_TTS_PROVIDERS",
     "TALK_PROVIDERS",
     "TALK_VOICE_MODES",
@@ -1067,6 +1106,7 @@ __all__ = [
     "memory_search_timeout_s",
     "realtime_model_compatibility",
     "realtime_model_valid",
+    "realtime_speed",
     "resolve_elevenlabs_key",
     "resolve_gemini_key",
     "resolve_openai_key",
@@ -1082,4 +1122,5 @@ __all__ = [
     "trust_declared_read_only",
     "turn_detection",
     "voice_mode",
+    "voice_style",
 ]
