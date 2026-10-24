@@ -83,6 +83,32 @@ or inside the already-blocking `warm()`) and `tests/test_capabilities.py`
 Drop when: upstream resolves the lane before the catalog's first read, or no
 longer caches a cold lane verdict as the catalog.
 
+### 4. In-process catalog uses Hermes's current skill helper names
+
+Hermes renamed `tools.skills_tool._find_all_skills` / `_sort_skills` to
+`find_all_skills` / `sort_skills` (hermes-agent `93fafc4d6f`). Upstream's
+in-process catalog tier imported only the old names, failed silently (debug
+log), and fell through to the api_server over HTTP even inside the gateway.
+
+Files: `talk_host.py` (`_catalog_from_host_modules` imports the public names and
+falls back to the underscored ones for older hosts) and
+`tests/test_capabilities.py`
+(`test_in_process_tier_reads_the_current_public_skill_helpers`).
+
+Drop when: upstream imports the public names.
+
+### 5. The session-start catalog wait no longer blocks the event loop
+
+`run_talk_session` is a coroutine; in the Discord lane it runs on the gateway's
+event loop, which also serves Hermes's api_server. Upstream called the blocking
+`talk_capabilities.wait_until_warm` (up to `TALK_CATALOG_STARTUP_WAIT_S`, 2.5 s)
+directly, so the catalog's HTTP read of the api_server (1.5 s probe timeout)
+could not be answered until the wait ended, and the failure was cached.
+
+Files: `talk_cli.py` (`await asyncio.to_thread(talk_capabilities.wait_until_warm, ...)`).
+
+Drop when: upstream stops blocking the loop for that wait.
+
 ## Related local patch outside this repo
 
 Hermes Agent itself (`~/.hermes/hermes-agent`, not this repo) carries one local
