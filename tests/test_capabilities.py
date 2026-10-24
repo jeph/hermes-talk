@@ -213,6 +213,27 @@ def test_in_process_toolset_flags_follow_the_host_builders(monkeypatch, rest_lan
     assert by_name["email"]["configured"] is False
 
 
+def test_in_process_tier_reads_the_current_public_skill_helpers(monkeypatch, rest_lane_on):
+    """Hermes renamed _find_all_skills/_sort_skills to public names; a host with
+    only the new names fell through to the REST tier, which in the gateway is
+    served by the same process that is asking."""
+
+    import types
+
+    reads = _rest_spy(monkeypatch)
+    _install_fake_host(monkeypatch)
+    skills_tool = types.ModuleType("tools.skills_tool")
+    skills_tool.find_all_skills = lambda *, skip_disabled=False: list(FAKE_SKILLS)
+    skills_tool.sort_skills = lambda rows: list(rows)
+    monkeypatch.setitem(sys.modules, "tools.skills_tool", skills_tool)
+
+    snapshot = talk_capabilities.warm()
+
+    assert snapshot.source == talk_capabilities.SOURCE_IN_PROCESS
+    assert snapshot.skills == tuple(FAKE_SKILLS)
+    assert reads == []
+
+
 def test_no_host_modules_falls_through_to_the_api_server(monkeypatch, rest_lane_on):
     """A process without Hermes's registries has no in-process answer."""
 
