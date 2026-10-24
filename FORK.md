@@ -110,6 +110,23 @@ and `tests/test_cli.py` (`test_the_startup_catalog_wait_leaves_the_event_loop_fr
 
 Drop when: upstream stops blocking the loop for that wait.
 
+### 6. Native voice speed and speaking style
+
+| Setting | Meaning |
+|---|---|
+| `TALK_SPEED` | OpenAI Realtime `audio.output.speed`, 0.25 to 1.5 (1.0 is normal). Unset sends no field. Junk or out-of-range values refuse the session instead of clamping. Changes playback rate, not wording. |
+| `TALK_VOICE_STYLE` | Free text appended to the session instructions under `# Speaking style`, for example an accent. Unset changes nothing. |
+
+Both apply only to native audio sessions; cascade (text-output) sessions ignore
+them. Upstream's `TALK_CASCADE_SPEED` remains the cascade lane's pace setting.
+
+Files: `talk_config.py` (`realtime_speed`, `voice_style`,
+`REALTIME_SPEED_MIN`/`MAX`, and their `__all__` entries), `talk_wire.py`
+(`build_session_payload` reads both; `talk_config` added to its imports), and
+`tests/test_voice_tuning.py` (new).
+
+Drop when: upstream adds equivalent settings; move the values to upstream's names.
+
 ## Related local patch outside this repo
 
 Hermes Agent itself (`~/.hermes/hermes-agent`, not this repo) carries one local
