@@ -283,9 +283,7 @@ def status() -> ApiServerStatus:
         cached, taken_at = _STATUS, _STATUS_AT
     if cached is None:
         _refresh_in_background()
-        return ApiServerStatus(
-            available=False, reason=REASON_ABSENT, detail=CHECKING_DETAIL
-        )
+        return ApiServerStatus(available=False, reason=REASON_ABSENT, detail=CHECKING_DETAIL)
     if time.monotonic() - taken_at >= talk_config.api_server_probe_ttl_s():
         _refresh_in_background()
     return cached
@@ -297,9 +295,7 @@ def is_available() -> bool:
     return status().available
 
 
-def start_run(
-    prompt: str, *, session_id: str | None = None, session_key: str | None = None
-) -> str:
+def start_run(prompt: str, *, session_id: str | None = None, session_key: str | None = None) -> str:
     """POST /v1/runs. Returns the run id; raises on anything else.
 
     ``session_id`` names an EXISTING remote conversation to continue;
@@ -384,8 +380,7 @@ def _get_json(path: str, what: str) -> Any:
         ) from exc
     if response.status_code != 200:
         raise TalkApiServerError(
-            f"the Hermes api server answered {response.status_code} when I asked "
-            f"about {what}"
+            f"the Hermes api server answered {response.status_code} when I asked about {what}"
         )
     try:
         return response.json()
@@ -396,12 +391,11 @@ def _get_json(path: str, what: str) -> Any:
 
 
 def _listing(path: str, key: str, what: str) -> list[dict]:
-    """One catalog listing, accepting a bare list or a ``{key: [...]}`` envelope.
+    """One catalog listing: a bare list, a ``{key: [...]}`` envelope, or the
+    OpenAI-style ``{"object": "list", "data": [...]}`` envelope that the Hermes
+    api_server actually returns for ``/v1/skills`` and ``/v1/toolsets``.
 
-    Both shapes are parsed because this repo has no Hermes gateway source to
-    pin the envelope against — only the documented route. Guessing one shape
-    and raising on the other would turn a cosmetic difference into a dead
-    feature; anything that is NEITHER shape still raises, because an
+    Anything that is none of those shapes still raises, because an
     unrecognized payload must not read as an empty-but-successful catalog.
     """
 
@@ -410,10 +404,10 @@ def _listing(path: str, key: str, what: str) -> list[dict]:
         entries = payload
     elif isinstance(payload, dict) and isinstance(payload.get(key), list):
         entries = payload[key]
+    elif isinstance(payload, dict) and isinstance(payload.get("data"), list):
+        entries = payload["data"]
     else:
-        raise TalkApiServerError(
-            f"the Hermes api server returned an unrecognized {what} payload"
-        )
+        raise TalkApiServerError(f"the Hermes api server returned an unrecognized {what} payload")
     return [entry for entry in entries if isinstance(entry, dict)]
 
 
@@ -497,9 +491,7 @@ def run_to_completion(
         if state == "completed":
             output = run.get("output")
             text = output if isinstance(output, str) else json.dumps(output, default=str)
-            return (text.strip() or "the agent finished without saying anything")[
-                :MAX_OUTPUT_CHARS
-            ]
+            return (text.strip() or "the agent finished without saying anything")[:MAX_OUTPUT_CHARS]
         error = run.get("error")
         detail = str(error) if error else "no reason given"
         return f"the agent run {state}: {detail}"[:MAX_OUTPUT_CHARS]
@@ -528,9 +520,7 @@ def stop_run(run_id: str) -> None:
             f"I couldn't reach the Hermes api server ({type(exc).__name__})"
         ) from exc
     if response.status_code // 100 != 2:
-        raise TalkApiServerError(
-            f"the Hermes api server refused the stop ({response.status_code})"
-        )
+        raise TalkApiServerError(f"the Hermes api server refused the stop ({response.status_code})")
 
 
 class ApprovalGoneError(TalkApiServerError):
@@ -578,9 +568,7 @@ def stream_run_events(run_id: str, on_event, *, idle_timeout_s: float = SSE_READ
     try:
         with httpx.stream("GET", url, headers=_auth_headers(), timeout=timeout) as response:
             if response.status_code != 200:
-                _log.debug(
-                    "run events stream for %s refused (%s)", run_id, response.status_code
-                )
+                _log.debug("run events stream for %s refused (%s)", run_id, response.status_code)
                 return
             data_lines: list[str] = []
             for line in response.iter_lines():
@@ -605,14 +593,10 @@ def stream_run_events(run_id: str, on_event, *, idle_timeout_s: float = SSE_READ
                 except Exception:  # noqa: BLE001 — a consumer must never kill the stream
                     _log.debug("run event consumer failed for %s", run_id, exc_info=True)
     except httpx.HTTPError as exc:
-        _log.debug(
-            "run events stream ended for %s: %s: %s", run_id, type(exc).__name__, exc
-        )
+        _log.debug("run events stream ended for %s: %s: %s", run_id, type(exc).__name__, exc)
 
 
-def respond_to_approval(
-    run_id: str, choice: str, *, approval_id: str | None = None
-) -> dict:
+def respond_to_approval(run_id: str, choice: str, *, approval_id: str | None = None) -> dict:
     """POST ``/v1/runs/{id}/approval`` — resolve the run's pending approval.
 
     Returns the decoded payload on 2xx (the host's receipt carries
@@ -645,9 +629,7 @@ def respond_to_approval(
             f"I couldn't reach the Hermes api server ({type(exc).__name__})"
         ) from exc
     if response.status_code == 409:
-        raise ApprovalGoneError(
-            "the host says that approval was already answered or expired"
-        )
+        raise ApprovalGoneError("the host says that approval was already answered or expired")
     if response.status_code // 100 != 2:
         raise TalkApiServerError(
             f"the Hermes api server refused the approval answer ({response.status_code})"
