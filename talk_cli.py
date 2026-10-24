@@ -1603,8 +1603,11 @@ async def run_talk_session(
     # session then permanently lacked the section — so the warm gets a
     # bounded head start (TALK_CATALOG_STARTUP_WAIT_S, 0 = never wait). On
     # expiry the session starts exactly as before: section omitted, no stall.
-    catalog_snapshot = talk_capabilities.wait_until_warm(
-        talk_config.catalog_startup_wait_s()
+    # Waited on a worker thread: in the gateway this coroutine shares its event
+    # loop with Hermes's own api_server, and blocking the loop here starves the
+    # catalog's REST read of that server until it times out.
+    catalog_snapshot = await asyncio.to_thread(
+        talk_capabilities.wait_until_warm, talk_config.catalog_startup_wait_s()
     )
     instructions = talk_identity.build_instructions(
         talk_host.host().identity_sections(),
