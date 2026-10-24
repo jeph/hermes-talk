@@ -105,7 +105,8 @@ event loop, which also serves Hermes's api_server. Upstream called the blocking
 directly, so the catalog's HTTP read of the api_server (1.5 s probe timeout)
 could not be answered until the wait ended, and the failure was cached.
 
-Files: `talk_cli.py` (`await asyncio.to_thread(talk_capabilities.wait_until_warm, ...)`).
+Files: `talk_cli.py` (`await asyncio.to_thread(talk_capabilities.wait_until_warm, ...)`)
+and `tests/test_cli.py` (`test_the_startup_catalog_wait_leaves_the_event_loop_free`).
 
 Drop when: upstream stops blocking the loop for that wait.
 

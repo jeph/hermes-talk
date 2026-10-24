@@ -2299,6 +2299,42 @@ def test_a_caller_named_lane_buys_no_summary(monkeypatch, tmp_path):
     assert talk_identity.LANE_LINES["discord"] in seen["instructions"]
 
 
+def test_the_startup_catalog_wait_leaves_the_event_loop_free(
+    monkeypatch, tmp_path, isolated_capability_catalog
+):
+    """In the gateway, the loop running the session also serves Hermes's
+    api_server. The catalog read needs that loop while session start waits for
+    it; a synchronous wait starved the read and minted a prompt without it."""
+
+    seen = _capture_instructions(monkeypatch, tmp_path)
+    monkeypatch.setenv("TALK_CATALOG_STARTUP_WAIT_S", "2")
+    snapshot = _catalog_snapshot(
+        skills=({"name": "web_search", "installed": True},),
+        toolsets=({"name": "browser", "enabled": True, "configured": True, "tools": ["go"]},),
+    )
+    assert talk_capabilities.instruction_section(snapshot) is not None
+
+    async def answered_by_the_loop():
+        return snapshot
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+
+        def resolve():
+            future = asyncio.run_coroutine_threadsafe(answered_by_the_loop(), loop)
+            return future.result(timeout=1)
+
+        monkeypatch.setattr(talk_capabilities, "_resolve", resolve)
+        return await talk_cli.run_talk_session(lane="discord")
+
+    talk_capabilities.reset_for_tests()
+    try:
+        assert asyncio.run(scenario()) == 1
+    finally:
+        talk_capabilities.reset_for_tests()
+    assert seen["capabilities"] == talk_capabilities.instruction_section(snapshot)
+
+
 @pytest.mark.parametrize("provider,mode", [("grok", "semantic_vad"), ("gemini", "server_vad")])
 def test_unsupported_endpointing_refuses_before_resolving_credentials(monkeypatch, provider, mode):
     monkeypatch.setenv("TALK_PROVIDER", provider)
